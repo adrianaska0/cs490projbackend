@@ -132,6 +132,7 @@ def customers():
                 results = str(cur.fetchall())             
             else:
                 cur.execute("INSERT INTO city VALUES (DEFAULT, %s, %s, DEFAULT)", (city, countryID,))
+                mysql.connection.commit()
                 res = cur.execute("SELECT city_id FROM city WHERE city=%s", (city,))
                 results = str(cur.fetchall())
             results = results.replace('(', '')
@@ -140,16 +141,24 @@ def customers():
 
             #address
             res = cur.execute("INSERT INTO address VALUES (DEFAULT, %s, %s, %s, %s, %s, %s,POINT(51.61100420,-0.10213410), DEFAULT)", (addy, addy2, district, cityID, zip, phone,))
+            mysql.connection.commit()    
             res = cur.execute("SELECT address_id FROM address WHERE phone=%s",(phone,))
             if res > 0:
                 results = str(cur.fetchall())
                 results = results.replace('(', '')
                 results = results.replace(')', '')
                 addyID = results.replace(',', '')
-                return addyID
 
             #customer (finally)
-            #res = cur.execute("INSERT INTO customer VALUES (DEFAULT, 1, %s, %s, %s, %s, 1, CURDATE(), DEFAULT)", (fName, lName, email, addyID,))
+            res = cur.execute("INSERT INTO customer VALUES (DEFAULT, 1, %s, %s, %s, %s, 1, CURDATE(), DEFAULT)", (fName, lName, email, addyID,))
+            mysql.connection.commit()
+            res = cur.execute("SELECT customer_id FROM customer WHERE last_name=%s AND email=%s", (lName, email))
+            if res > 0:
+                results = str(cur.fetchall())
+                results = results.replace('(', '')
+                results = results.replace(')', '')
+                custID = results.replace(',', '')
+                return custID   
 
                 
     if request.method == "POST":
