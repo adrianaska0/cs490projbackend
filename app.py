@@ -234,6 +234,18 @@ def customers():
             custID = request.form.get("ID")
             res = cur.execute("DELETE FROM customer WHERE customer_id=%s", (custID,))
             mysql.connection.commit()
+        elif request.form.get("rentals") == "View Rentals":
+            custID = request.form.get("ID")
+            res = cur.execute("SELECT rental_id, film.title, rental_date, return_date, rental.last_update FROM rental JOIN inventory ON rental.inventory_id = inventory.inventory_id JOIN film ON inventory.film_id = film.film_id WHERE rental.customer_id=%s;", (custID,))
+            if res > 0:
+                results = cur.fetchall()
+                res = cur.execute("SELECT last_name FROM customer WHERE customer_id=%s", (custID,))
+                lNam = stripRes(str(cur.fetchone()))
+                res = cur.execute("SELECT first_name FROM customer WHERE customer_id=%s", (custID,))
+                fNam = stripRes(str(cur.fetchone()))
+                return render_template("customers.html", rentals=results, custIden=custID, lNam=lNam, fNam=fNam)
+
+            #grab return_date individually and store in variable to help determine if movie has been returned on front-end
 
     if request.method == "POST":
         if request.form.get("nav") == "Home":
