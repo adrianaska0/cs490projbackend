@@ -10,6 +10,13 @@ app.config['MYSQL_USER'] = 'root'
 app.config['MYSQL_PASSWORD'] = 'root'
 app.config['MYSQL_DB'] = 'sakila'
 
+def stripRes(result):
+    result = result.replace('(', '')
+    result = result.replace(')', '')
+    result = result.replace('\'', '')
+    newRes = result.replace(',', '')
+    return newRes
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     cur = mysql.connection.cursor()
@@ -78,7 +85,8 @@ def movies():
                 results = results.replace('(', '')
                 results = results.replace(')', '')
                 invID = results.replace(',', '')
-            res = cur.execute("INSERT INTO rental VALUES (DEFAULT, CURDATE(),%s, %s, NULL, 1, DEFAULT)", (invID, custID,))    
+            res = cur.execute("INSERT INTO rental VALUES (DEFAULT, CURDATE(),%s, %s, NULL, 1, DEFAULT)", (invID, custID,))
+            mysql.connection.commit()    
               
     if request.method == "POST":
         if request.form.get("nav") == "Home":
@@ -121,10 +129,7 @@ def customers():
             #country
             res = cur.execute("SELECT country_id FROM country WHERE country=%s",(country,))
             if res > 0:
-                results = str(cur.fetchall())
-                results = results.replace('(', '')
-                results = results.replace(')', '')
-                countryID = results.replace(',', '')
+                countryID = stripRes(str(cur.fetchall()))
             
             #city
             res = cur.execute("SELECT city_id FROM city WHERE city=%s", (city,))
@@ -135,32 +140,101 @@ def customers():
                 mysql.connection.commit()
                 res = cur.execute("SELECT city_id FROM city WHERE city=%s", (city,))
                 results = str(cur.fetchall())
-            results = results.replace('(', '')
-            results = results.replace(')', '')
-            cityID = results.replace(',', '')
+            cityID = stripRes(results)
 
             #address
             res = cur.execute("INSERT INTO address VALUES (DEFAULT, %s, %s, %s, %s, %s, %s,POINT(51.61100420,-0.10213410), DEFAULT)", (addy, addy2, district, cityID, zip, phone,))
             mysql.connection.commit()    
             res = cur.execute("SELECT address_id FROM address WHERE phone=%s",(phone,))
             if res > 0:
-                results = str(cur.fetchall())
-                results = results.replace('(', '')
-                results = results.replace(')', '')
-                addyID = results.replace(',', '')
+                addyID = stripRes(str(cur.fetchall()))
 
             #customer (finally)
             res = cur.execute("INSERT INTO customer VALUES (DEFAULT, 1, %s, %s, %s, %s, 1, CURDATE(), DEFAULT)", (fName, lName, email, addyID,))
             mysql.connection.commit()
             res = cur.execute("SELECT customer_id FROM customer WHERE last_name=%s AND email=%s", (lName, email))
             if res > 0:
-                results = str(cur.fetchall())
-                results = results.replace('(', '')
-                results = results.replace(')', '')
-                custID = results.replace(',', '')
-                return custID   
-
+                custID = stripRes(str(cur.fetchall()))
                 
+        elif request.form.get("custDet") == "View More":
+            cID = request.form.get("custID")
+            #gathering customer information
+            #first name
+            res = cur.execute("SELECT first_name FROM customer WHERE customer_id=%s;", (cID,)) 
+            firstName = stripRes(str(cur.fetchone()))
+            #last name
+            res = cur.execute("SELECT last_name FROM customer WHERE customer_id=%s;", (cID,))
+            lastName = stripRes(str(cur.fetchone()))
+            #email
+            res = cur.execute("SELECT email FROM customer WHERE customer_id=%s;", (cID,))
+            email =  stripRes(str(cur.fetchone()))
+            #address id
+            res = cur.execute("SELECT address_id FROM customer WHERE customer_id=%s;", (cID,))        
+            addressID = stripRes(str(cur.fetchone()))
+            res = cur.execute("SELECT address FROM address WHERE address_id=%s", (addressID,))
+            street = stripRes(str(cur.fetchall()))
+            res = cur.execute("SELECT address2 FROM address WHERE address_id=%s", (addressID,))
+            street2 = stripRes(str(cur.fetchall()))
+            res = cur.execute("SELECT district FROM address WHERE address_id=%s", (addressID,))
+            district = stripRes(str(cur.fetchall()))
+            res = cur.execute ("SELECT phone FROM address WHERE address_id=%s", (addressID,))
+            phone = stripRes(str(cur.fetchall()))
+            res = cur.execute ("SELECT postal_code FROM address WHERE address_id=%s", (addressID,))
+            zip = stripRes(str(cur.fetchall()))
+            #city id
+            res = cur.execute("SELECT city_id FROM address WHERE address_id=%s", (addressID,))
+            cityID = stripRes(str(cur.fetchall()))
+            res = cur.execute("SELECT city FROM city WHERE city_id=%s", (cityID,))
+            city = stripRes(str(cur.fetchall()))
+            #country id 
+            res = cur.execute("SELECT country_id FROM city WHERE city_id=%s", (cityID,))
+            countryID = stripRes(str(cur.fetchall()))
+            res = cur.execute("SELECT country FROM country WHERE country_id=%s", (countryID,))
+            country = stripRes(str(cur.fetchall()))
+
+            return render_template('customers.html', cID = cID, fN = firstName, lN = lastName, eM = email, sT = street, sT2 = street2, dT = district, pH = phone, cT = city, zip = zip, cTry = country)
+
+        elif request.form.get("upCus") == "Update Customer":
+            ID = request.form.get("ID")
+            fName = request.form.get("fN")
+            lName = request.form.get("lN")
+            email = request.form.get("eM")
+            phone = request.form.get("pH")
+            addy = request.form.get("sT")
+            addy2 = request.form.get("sT2")
+            district = request.form.get("dT")
+            city = request.form.get("cT")
+            zip = request.form.get("zip")
+            country = request.form.get("cTry")
+
+            #update customer table
+            res = cur.execute("UPDATE customer SET first_name=%s, last_name=%s, email=%s WHERE customer_id=%s", (fName, lName, email, ID))
+            mysql.connection.commit()
+
+            #update address table
+            #get address ID and country ID
+            res = cur.execute("SELECT address_id FROM customer WHERE customer_id=%s", (ID,))
+            addyID = stripRes(str(cur.fetchone()))
+            res = cur.execute("SELECT country_id FROM country WHERE country=%s", (country,))
+            countryID = stripRes(str(cur.fetchone()))
+            #city
+            res = cur.execute("SELECT city_id FROM city WHERE city=%s", (city,))
+            if res > 0:
+                cityID = stripRes(str(cur.fetchone()))
+            else: #if city does not exist
+                res = cur.execute("INSERT INTO city VALUES (DEFAULT, %s, %s, DEFAULT)", (city, countryID,))
+                mysql.connection.commit()
+                res = cur.execute("SELECT city_id FROM city WHERE city=%s", (city,))
+                cityID = stripRes(str(cur.fetchone()))
+
+            res = cur.execute("UPDATE address SET address=%s, address2=%s, district=%s, city_id=%s, postal_code=%s, phone=%s WHERE address_id=%s", (addy, addy2, district, cityID, zip, phone, addyID,))
+            mysql.connection.commit()
+
+        elif request.form.get("delCus") == "Delete Customer":
+            custID = request.form.get("ID")
+            res = cur.execute("DELETE FROM customer WHERE customer_id=%s", (custID,))
+            mysql.connection.commit()
+
     if request.method == "POST":
         if request.form.get("nav") == "Home":
             return redirect("/")
