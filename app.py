@@ -1,6 +1,9 @@
-from flask import Flask, render_template, request, redirect
+from flask import Flask, render_template, request, redirect, Response
 from flask_mysqldb import MySQL
+from datetime import date, datetime, timedelta
+import pdfkit
 
+today = date.today()
 app = Flask(__name__)
 
 mysql = MySQL(app)
@@ -56,6 +59,8 @@ def index():
             return redirect("/movies")
         elif request.form.get("nav") == "Customers":
             return redirect("/customers")
+        elif request.form.get("exp") == "Export":
+            return redirect("/export")
                        
     return render_template('index.html')
 
@@ -65,10 +70,13 @@ def movies():
     if request.method == "POST":
         if request.form.get("subSearch") == "Go":
             txt = "%" + request.form['search'] +"%"
-            res = cur.execute('SELECT DISTINCT(title) FROM category JOIN film_category ON category.category_id = film_category.category_id JOIN film ON film_category.film_id = film.film_id JOIN film_actor ON film.film_id = film_actor.film_id JOIN actor ON film_actor.actor_id = actor.actor_id WHERE film.title LIKE %s OR actor.first_name LIKE %s OR actor.last_name LIKE %s OR category.name LIKE %s GROUP BY title, description, release_year, category.name ORDER BY title', (txt, txt, txt, txt,))
+            res = cur.execute("SELECT DISTINCT(title) FROM category JOIN film_category ON category.category_id = film_category.category_id JOIN film ON film_category.film_id = film.film_id JOIN film_actor ON film.film_id = film_actor.film_id JOIN actor ON film_actor.actor_id = actor.actor_id WHERE film.title LIKE %s OR actor.first_name LIKE %s OR actor.last_name LIKE %s OR category.name LIKE %s GROUP BY title, description, release_year, category.name ORDER BY title", (txt, txt, txt, txt,))
             if res > 0:
                 results = cur.fetchall()
                 return render_template('movies.html', searchRes=results)
+            else:
+                errorVar = request.form.get('search')
+                return render_template('movies.html', errorVar=errorVar)
         elif isinstance(request.form.get("mov"), str):
             movie = request.form.get("mov")
             movie = str(movie)
@@ -79,14 +87,16 @@ def movies():
         elif request.form.get("rent") == "Rent":
             movieID = str(request.form.get("rentedMov"))
             custID = str(request.form.get("custID"))
-            res = cur.execute("SELECT inventory_id FROM inventory WHERE film_id=%s LIMIT 0,1;",(movieID,))
+            res = cur.execute("SELECT customer_id FROM customer WHERE customer_id=%s", (custID,))
             if res > 0:
-                results = str(cur.fetchall())
-                results = results.replace('(', '')
-                results = results.replace(')', '')
-                invID = results.replace(',', '')
-            res = cur.execute("INSERT INTO rental VALUES (DEFAULT, CURDATE(),%s, %s, NULL, 1, DEFAULT)", (invID, custID,))
-            mysql.connection.commit()    
+                res = cur.execute("SELECT inventory_id FROM inventory WHERE film_id=%s LIMIT 0,1;",(movieID,))
+                if res > 0:
+                    invID = stripRes(str(cur.fetchall()))
+                res = cur.execute("INSERT INTO rental VALUES (DEFAULT, CURDATE(),%s, %s, NULL, 1, DEFAULT)", (invID, custID,))
+                mysql.connection.commit()
+            else:
+                errorVarCus = 'Customer with ID:' + custID + ' not found. Please try again.'
+                return render_template('movies.html', errorVarCus=errorVarCus)                    
               
     if request.method == "POST":
         if request.form.get("nav") == "Home":
@@ -95,24 +105,31 @@ def movies():
             return redirect("/movies")
         elif request.form.get("nav") == "Customers":
             return redirect("/customers")
+        elif request.form.get("exp") == "Export":
+            return redirect("/export")
     return render_template('movies.html')
 
 @app.route('/customers', methods=['GET', 'POST'])
 def customers():
     cur = mysql.connection.cursor()
+    res = cur.execute("SELECT country FROM country ORDER BY country;")
+    cList = cur.fetchall()
     if request.method == "POST":
         if request.form.get("list") == "View All":
             res = cur.execute("SELECT customer_id, first_name, last_name FROM customer")
             if res > 0:
                 results = cur.fetchall()
-                return render_template('customers.html', customerList=results)
+                return render_template('customers.html', customerList=results, cList=cList)
         elif request.form.get("filterSub") == "Filter":
             filter = request.form.get("filterVal")
             newFilter = "%" + request.form.get("filterVal") + "%"
             res = cur.execute("SELECT customer_id, first_name, last_name FROM customer WHERE customer_id=%s OR first_name LIKE %s OR last_name LIKE %s", (filter, newFilter, newFilter,))
             if res > 0:
                 results = cur.fetchall()
-                return render_template('customers.html', customerList=results)
+                return render_template('customers.html', customerList=results, cList=cList)
+            else:
+                errorVar = request.form.get('filterVal')
+                return render_template('customers.html', errorVar=errorVar, cList=cList)
         elif request.form.get("subAdd") == "Add Customer":
             #Fetch all variables
             fName = request.form.get("fName")
@@ -192,7 +209,7 @@ def customers():
             res = cur.execute("SELECT country FROM country WHERE country_id=%s", (countryID,))
             country = stripRes(str(cur.fetchall()))
 
-            return render_template('customers.html', cID = cID, fN = firstName, lN = lastName, eM = email, sT = street, sT2 = street2, dT = district, pH = phone, cT = city, zip = zip, cTry = country)
+            return render_template('customers.html', cID = cID, fN = firstName, lN = lastName, eM = email, sT = street, sT2 = street2, dT = district, pH = phone, cT = city, zip = zip, cTry = country, cList=cList)
 
         elif request.form.get("upCus") == "Update Customer":
             ID = request.form.get("ID")
@@ -232,29 +249,71 @@ def customers():
 
         elif request.form.get("delCus") == "Delete Customer":
             custID = request.form.get("ID")
+            res = cur.execute("DELETE FROM rental WHERE customer_id=%s", (custID,))
+            mysql.connection.commit()
             res = cur.execute("DELETE FROM customer WHERE customer_id=%s", (custID,))
             mysql.connection.commit()
+
         elif request.form.get("rentals") == "View Rentals":
             custID = request.form.get("ID")
+            res = cur.execute("SELECT last_name FROM customer WHERE customer_id=%s", (custID,))
+            lNam = stripRes(str(cur.fetchone()))
+            res = cur.execute("SELECT first_name FROM customer WHERE customer_id=%s", (custID,))
+            fNam = stripRes(str(cur.fetchone()))
             res = cur.execute("SELECT rental_id, film.title, rental_date, return_date, rental.last_update FROM rental JOIN inventory ON rental.inventory_id = inventory.inventory_id JOIN film ON inventory.film_id = film.film_id WHERE rental.customer_id=%s;", (custID,))
             if res > 0:
                 results = cur.fetchall()
-                res = cur.execute("SELECT last_name FROM customer WHERE customer_id=%s", (custID,))
-                lNam = stripRes(str(cur.fetchone()))
-                res = cur.execute("SELECT first_name FROM customer WHERE customer_id=%s", (custID,))
-                fNam = stripRes(str(cur.fetchone()))
-                return render_template("customers.html", rentals=results, custIden=custID, lNam=lNam, fNam=fNam)
+                return render_template("customers.html", rentals=results, custIden=custID, lNam=lNam, fNam=fNam, cList=cList)
+            else:
+                errorVarRent = 'No rentals found.'
+                return render_template('customers.html', errorVarRent=errorVarRent, cList=cList, custIden=custID, lNam=lNam, fNam=fNam) 
+                      
+        elif request.form.get("returnFilm") == "Return":
+            rentID = request.form.get("rentID")
+            res = cur.execute("UPDATE rental SET return_date=CURRENT_TIMESTAMP() WHERE rental_id=%s", (rentID,))
+            mysql.connection.commit()
+            #send message saying complete
 
-            #grab return_date individually and store in variable to help determine if movie has been returned on front-end
+            
 
     if request.method == "POST":
-        if request.form.get("nav") == "Home":
+        if request.form.get("nav") == "Home": 
             return redirect("/")
-        elif request.form.get("nav") == "Movies":
+        elif request.form.get("nav") == "Movies": 
             return redirect("/movies")
         elif request.form.get("nav") == "Customers":
             return redirect("/customers")
-    return render_template('customers.html')
+        elif request.form.get("exp") == "Export":
+            return redirect("/export")
+    return render_template('customers.html', cList = cList)
+
+@app.route("/export")
+def export_data():
+    cur = mysql.connection.cursor()
+    now = datetime.now()
+    nowAdj = now + timedelta(minutes=12, seconds=-10)
+    d = today.strftime("%B %d, %Y")
+    time = nowAdj.strftime("%H:%M:%S")
+    stamp = (d + " " + time)
+    res = cur.execute("SELECT rental_id, customer.customer_id, customer.last_name, customer.first_name, film.title, rental_date, rental.last_update FROM customer JOIN rental ON customer.customer_id=rental.customer_id JOIN inventory ON rental.inventory_id=inventory.inventory_id JOIN film ON inventory.film_id=film.film_id WHERE return_date is NULL;")
+    if res > 0:
+        results = cur.fetchall()
+        outFile = render_template("export.html", details=results, stamp=stamp)
+
+    options = {
+        "orientation": "portrait",
+        "page-size": "A4",  
+        "margin-top": "1.0cm",
+        "margin-right": "1.0cm",
+        "margin-left": "1.0cm",
+        "margin-bottom": "1.0cm",
+        "encoding": "UTF-8",
+    }
+
+    pdf = pdfkit.from_string(outFile, options=options)
+    return Response(pdf, mimetype="application/pdf")
 
 if __name__ == '__main__':
     app.run(debug=True)
+
+
